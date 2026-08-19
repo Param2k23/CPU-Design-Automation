@@ -1,0 +1,25 @@
+[project]
+name = "cpu-design-automation"
+version = "0.1.0"
+description = "CPU Design Automation Platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+    "redis>=5.0.0",
+    "pydantic>=2.0.0",
+    "pytest>=8.0.0",
+    "requests>=2.31.0",
+    "httpx>=0.24.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend/app"]

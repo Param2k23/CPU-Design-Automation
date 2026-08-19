@@ -1,0 +1,90 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: cpu_user
+      POSTGRES_PASSWORD: cpu_password
+      POSTGRES_DB: cpu_jobs
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cpu_user -d cpu_jobs"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://cpu_user:cpu_password@db/cpu_jobs
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - ./simulations:/app/simulations
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.worker
+    command: python -m app.workers.scheduler
+    environment:
+      DATABASE_URL: postgresql://cpu_user:cpu_password@db/cpu_jobs
+      REDIS_URL: redis://redis:6379/0
+      WORKER_CONCURRENCY: 2
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - ./rtl:/app/rtl
+      - ./testbenches:/app/testbenches
+      - ./simulations:/app/simulations
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  test:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.worker
+    command: pytest tests -v
+    environment:
+      DATABASE_URL: postgresql://cpu_user:cpu_password@db/cpu_jobs
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - ./rtl:/app/rtl
+      - ./testbenches:/app/testbenches
+      - ./simulations:/app/simulations
+    depends_on:
+      api:
+        condition: service_started
+      worker:
+        condition: service_started
+
+volumes:
+  pgdata:
