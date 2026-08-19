@@ -1,10 +1,25 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import os
 
 class FailureAnalyzer(ABC):
     @abstractmethod
-    def analyze(self, design_name: str, test_name: str, exit_code: int, stdout: str, stderr: str, runtime_ms: int) -> Dict[str, Any]:
+    def analyze(
+        self,
+        design_name: str,
+        test_name: str,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        runtime_ms: int,
+        rtl_path: Optional[str] = None,
+        testbench_path: Optional[str] = None,
+        compile_logs: Optional[str] = None,
+        simulation_logs: Optional[str] = None,
+        failure_category: Optional[str] = None,
+        artifact_metadata: Optional[List[Dict[str, Any]]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
         """
         Analyze a failed simulation and return a structured dictionary containing:
         - failure_category: str
@@ -18,7 +33,22 @@ class FailureAnalyzer(ABC):
         pass
 
 class RuleBasedFailureAnalyzer(FailureAnalyzer):
-    def analyze(self, design_name: str, test_name: str, exit_code: int, stdout: str, stderr: str, runtime_ms: int) -> Dict[str, Any]:
+    def analyze(
+        self,
+        design_name: str,
+        test_name: str,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        runtime_ms: int,
+        rtl_path: Optional[str] = None,
+        testbench_path: Optional[str] = None,
+        compile_logs: Optional[str] = None,
+        simulation_logs: Optional[str] = None,
+        failure_category: Optional[str] = None,
+        artifact_metadata: Optional[List[Dict[str, Any]]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
         stdout_lower = stdout.lower() if stdout else ""
         stderr_lower = stderr.lower() if stderr else ""
 
@@ -83,7 +113,22 @@ class RuleBasedFailureAnalyzer(FailureAnalyzer):
         }
 
 class LLMFailureAnalyzer(FailureAnalyzer):
-    def analyze(self, design_name: str, test_name: str, exit_code: int, stdout: str, stderr: str, runtime_ms: int) -> Dict[str, Any]:
+    def analyze(
+        self,
+        design_name: str,
+        test_name: str,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        runtime_ms: int,
+        rtl_path: Optional[str] = None,
+        testbench_path: Optional[str] = None,
+        compile_logs: Optional[str] = None,
+        simulation_logs: Optional[str] = None,
+        failure_category: Optional[str] = None,
+        artifact_metadata: Optional[List[Dict[str, Any]]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
         # This is a stub for the LLM analyzer to demonstrate the abstraction without requiring an external API key.
         return {
             "failure_category": "UNKNOWN",

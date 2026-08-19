@@ -1,0 +1,6 @@
+--- COMPILE STDERR ---
+make: Warning: File 'Valu.mk' has modification time 0.02 s in the future
+make: warning:  Clock skew detected.  Your build may be incomplete.
+
+--- SIMULATION STDERR ---
+Assertion failed: Expected 999 but got 30
