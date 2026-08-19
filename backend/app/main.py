@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.database import get_db, engine, Base
-from app.models.job import SimulationJob, FailureAnalysis, SimulationAttempt
-from app.schemas.job import JobCreate, JobResponse, JobLogResponse, FailureAnalysisResponse
-from app.queue.redis_queue import enqueue_job
+from app.models.job import SimulationJob, FailureAnalysis, SimulationAttempt, WorkerStatus
+from app.schemas.job import JobCreate, JobResponse, JobLogResponse, FailureAnalysisResponse, WorkerStatusResponse
+from app.queue.redis_queue import enqueue_job, get_queue_depths
 from app.debugging.analyzer import get_failure_analyzer
 
 # Create tables
@@ -119,3 +120,67 @@ def revalidate_job(job_id: str, db: Session = Depends(get_db)):
     
     enqueue_job(job.id, priority=job.priority)
     return job
+
+@app.get("/workers", response_model=list[WorkerStatusResponse])
+def get_workers(db: Session = Depends(get_db)):
+    workers = db.query(WorkerStatus).all()
+    return workers
+
+@app.get("/queue/depth")
+def get_queue_depth():
+    return get_queue_depths()
+
+@app.get("/metrics")
+def get_metrics(db: Session = Depends(get_db)):
+    # 1. Total jobs
+    total_jobs = db.query(func.count(SimulationJob.id)).scalar() or 0
+    passed_jobs = db.query(func.count(SimulationJob.id)).filter(SimulationJob.status == "PASSED").scalar() or 0
+    failed_jobs = db.query(func.count(SimulationJob.id)).filter(SimulationJob.status == "FAILED").scalar() or 0
+    
+    # 2. Retries
+    total_attempts = db.query(func.sum(SimulationJob.attempt_count)).scalar() or 0
+    retries = max(0, total_attempts - total_jobs)
+    
+    # 3. Workers
+    from datetime import datetime, timedelta
+    cutoff = datetime.utcnow() - timedelta(seconds=20)
+    active_workers = db.query(func.count(WorkerStatus.id)).filter(WorkerStatus.last_heartbeat > cutoff).scalar() or 0
+    active_slots = db.query(func.sum(WorkerStatus.active_slots)).scalar() or 0
+    
+    # 4. Queue depths
+    depths = get_queue_depths()
+    
+    # Format Prometheus metrics response
+    metrics_str = f"""# HELP simulation_jobs_total Total simulation jobs submitted
+# TYPE simulation_jobs_total counter
+simulation_jobs_total {total_jobs}
+
+# HELP simulation_jobs_success_total Total successful simulation jobs
+# TYPE simulation_jobs_success_total counter
+simulation_jobs_success_total {passed_jobs}
+
+# HELP simulation_jobs_failed_total Total failed simulation jobs
+# TYPE simulation_jobs_failed_total counter
+simulation_jobs_failed_total {failed_jobs}
+
+# HELP simulation_retries_total Total job retries
+# TYPE simulation_retries_total counter
+simulation_retries_total {retries}
+
+# HELP worker_jobs_active Active simulation worker slots
+# TYPE worker_jobs_active gauge
+worker_jobs_active {active_slots}
+
+# HELP simulation_queue_depth Current depth of priority queues
+# TYPE simulation_queue_depth gauge
+simulation_queue_depth{{priority="high"}} {depths['high']}
+simulation_queue_depth{{priority="normal"}} {depths['normal']}
+simulation_queue_depth{{priority="low"}} {depths['low']}
+simulation_queue_depth{{priority="delayed"}} {depths['delayed']}
+
+# HELP worker_count Number of active workers
+# TYPE worker_count gauge
+worker_count {active_workers}
+"""
+    return Response(content=metrics_str, media_type="text/plain")
+

@@ -59,3 +59,16 @@ class FailureAnalysisResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class WorkerStatusResponse(BaseModel):
+    id: str
+    name: str
+    status: str
+    concurrency_slots: int
+    active_slots: int
+    cpu_util: float
+    mem_util: float
+    last_heartbeat: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+

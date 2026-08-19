@@ -57,3 +57,16 @@ class FailureAnalysis(Base):
     recommended_fix = Column(Text, nullable=False)
     confidence = Column(Float, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class WorkerStatus(Base):
+    __tablename__ = "worker_statuses"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    status = Column(String, default="AVAILABLE", nullable=False)
+    concurrency_slots = Column(Integer, default=4, nullable=False)
+    active_slots = Column(Integer, default=0, nullable=False)
+    cpu_util = Column(Float, default=0.0, nullable=False)
+    mem_util = Column(Float, default=0.0, nullable=False)
+    last_heartbeat = Column(DateTime, default=datetime.datetime.utcnow)
+
