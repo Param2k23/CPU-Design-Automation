@@ -70,3 +70,17 @@ class WorkerStatus(Base):
     mem_util = Column(Float, default=0.0, nullable=False)
     last_heartbeat = Column(DateTime, default=datetime.datetime.utcnow)
 
+class SimulationArtifact(Base):
+    __tablename__ = "simulation_artifacts"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id = Column(String, ForeignKey("simulation_jobs.id"), nullable=False)
+    attempt_id = Column(String, ForeignKey("simulation_attempts.id"), nullable=False)
+    artifact_type = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    checksum = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+

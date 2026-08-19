@@ -35,10 +35,12 @@ services:
     environment:
       DATABASE_URL: postgresql://cpu_user:cpu_password@db/cpu_jobs
       REDIS_URL: redis://redis:6379/0
+      ARTIFACT_ROOT: /app/artifacts
     volumes:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
       - ./simulations:/app/simulations
+      - ./artifacts:/app/artifacts
     depends_on:
       db:
         condition: service_healthy
@@ -54,12 +56,14 @@ services:
       DATABASE_URL: postgresql://cpu_user:cpu_password@db/cpu_jobs
       REDIS_URL: redis://redis:6379/0
       WORKER_CONCURRENCY: 2
+      ARTIFACT_ROOT: /app/artifacts
     volumes:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
       - ./rtl:/app/rtl
       - ./testbenches:/app/testbenches
       - ./simulations:/app/simulations
+      - ./artifacts:/app/artifacts
     depends_on:
       db:
         condition: service_healthy
@@ -74,12 +78,14 @@ services:
     environment:
       DATABASE_URL: postgresql://cpu_user:cpu_password@db/cpu_jobs
       REDIS_URL: redis://redis:6379/0
+      ARTIFACT_ROOT: /app/artifacts
     volumes:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
       - ./rtl:/app/rtl
       - ./testbenches:/app/testbenches
       - ./simulations:/app/simulations
+      - ./artifacts:/app/artifacts
     depends_on:
       api:
         condition: service_started
