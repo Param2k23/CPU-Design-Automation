@@ -3,7 +3,7 @@ import os
 import logging
 from datetime import datetime
 from app.database import SessionLocal
-from app.models.job import SimulationJob
+from app.models.job import SimulationJob, SimulationAttempt
 from app.queue.redis_queue import dequeue_job
 from app.simulation.verilator import run_verilator, classify_failure
 
@@ -59,15 +59,24 @@ def process_job(job_id: str):
         else:
             job.status = "FAILED"
             job.failure_category = classify_failure(exit_code, stdout, stderr)
-            
-            # Basic deterministic remediation
-            if job.failure_category == "COMPILE_ERROR":
-                job.remediation = "Check syntax in RTL."
-            elif job.failure_category == "ASSERTION_FAILURE":
-                job.remediation = "Check testbench assertions and waveform."
-
+        # Basic deterministic remediation is now handled by analyzer API, not here
+        
+        # Create a SimulationAttempt record
+        attempt = SimulationAttempt(
+            job_id=job.id,
+            attempt_number=job.attempt_count,
+            status=job.status,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            exit_code=job.exit_code,
+            runtime_ms=job.runtime_ms,
+            stdout=job.stdout,
+            stderr=job.stderr,
+            failure_category=job.failure_category
+        )
+        db.add(attempt)
         db.commit()
-        logger.info(f"Job {job_id} completed with status {job.status}")
+        logger.info(f"Job {job_id} attempt {job.attempt_count} completed with status {job.status}")
 
     except Exception as e:
         logger.exception(f"Error processing job {job_id}: {e}")

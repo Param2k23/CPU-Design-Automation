@@ -3,16 +3,24 @@ import requests
 
 API_URL = "http://api:8000"
 
-def wait_for_job(job_id, timeout=30):
+POLL_INTERVAL = 2   # seconds between status checks
+JOB_TIMEOUT = 90    # seconds; Verilator compilation + simulation takes ~22s under normal load;
+                    # 90s gives ample margin for Docker scheduling latency and CI runner variance.
+
+def wait_for_job(job_id, timeout=JOB_TIMEOUT):
+    """Poll GET /jobs/{job_id} until the job reaches a terminal state or timeout expires."""
     start = time.time()
-    while time.time() - start < timeout:
+    while True:
+        elapsed = time.time() - start
+        if elapsed >= timeout:
+            print(f"\n[wait_for_job] Timed out after {elapsed:.1f}s waiting for job {job_id}")
+            return None
         res = requests.get(f"{API_URL}/jobs/{job_id}")
         if res.status_code == 200:
             data = res.json()
-            if data["status"] in ["PASSED", "FAILED", "CANCELLED"]:
+            if data["status"] in ("PASSED", "FAILED", "CANCELLED"):
                 return data
-        time.sleep(1)
-    return None
+        time.sleep(POLL_INTERVAL)
 
 def test_integration_pass():
     # Submit job

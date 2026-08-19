@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 class JobCreate(BaseModel):
@@ -29,5 +29,33 @@ class JobLogResponse(BaseModel):
     id: str
     stdout: Optional[str]
     stderr: Optional[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SimulationAttemptResponse(BaseModel):
+    id: str
+    job_id: str
+    attempt_number: int
+    status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    exit_code: Optional[int] = None
+    runtime_ms: Optional[int] = None
+    failure_category: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class FailureAnalysisResponse(BaseModel):
+    id: str
+    job_id: str
+    analyzer_type: str
+    failure_category: Optional[str] = None
+    summary: str
+    suspected_root_cause: str
+    evidence: Optional[List[str]] = None
+    recommended_fix: str
+    confidence: float
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
