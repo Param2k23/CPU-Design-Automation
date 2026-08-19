@@ -17,6 +17,7 @@ def run_verilator(rtl_path: str, testbench_path: str, output_dir: str):
     # verilator --cc <rtl> --exe <testbench> -Mdir <obj_dir> --build
     compile_cmd = [
         "verilator",
+        "--trace",
         "--cc", rtl_path,
         "--exe", testbench_path,
         "-Mdir", obj_dir,
@@ -47,6 +48,7 @@ def run_verilator(rtl_path: str, testbench_path: str, output_dir: str):
     try:
         sim_result = subprocess.run(
             [exe_path],
+            cwd=output_dir,
             capture_output=True,
             text=True,
             timeout=120 # 2 minute simulation timeout

@@ -72,3 +72,16 @@ class WorkerStatusResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class SimulationArtifactResponse(BaseModel):
+    id: str
+    job_id: str
+    attempt_id: str
+    artifact_type: str
+    filename: str
+    size_bytes: int
+    checksum: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+

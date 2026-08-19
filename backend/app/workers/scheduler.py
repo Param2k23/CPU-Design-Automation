@@ -175,6 +175,88 @@ def process_job(job_id: str):
         )
         db.add(attempt)
         db.commit()
+
+        # Collect and save artifacts
+        try:
+            from app.utils.checksum import calculate_sha256
+            from app.models.job import SimulationArtifact
+            import shutil
+
+            ARTIFACT_ROOT = os.getenv("ARTIFACT_ROOT", "./artifacts")
+            attempt_dir = os.path.join(ARTIFACT_ROOT, job_id, f"attempt-{job.attempt_count}")
+            os.makedirs(attempt_dir, exist_ok=True)
+
+            def save_artifact(content, filename, artifact_type):
+                if content is None:
+                    content = ""
+                file_path = os.path.join(attempt_dir, filename)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                size = os.path.getsize(file_path)
+                chk = calculate_sha256(file_path)
+                art = SimulationArtifact(
+                    job_id=job.id,
+                    attempt_id=attempt.id,
+                    artifact_type=artifact_type,
+                    filename=filename,
+                    path=file_path,
+                    size_bytes=size,
+                    checksum=chk
+                )
+                db.add(art)
+
+            compile_stdout = ""
+            sim_stdout = ""
+            if job.stdout:
+                parts = job.stdout.split("--- SIMULATION STDOUT ---")
+                if len(parts) >= 2:
+                    compile_stdout = parts[0].replace("--- COMPILE STDOUT ---", "").strip()
+                    sim_stdout = parts[1].strip()
+                else:
+                    compile_stdout = job.stdout
+
+            compile_stderr = ""
+            sim_stderr = ""
+            if job.stderr:
+                parts = job.stderr.split("--- SIMULATION STDERR ---")
+                if len(parts) >= 2:
+                    compile_stderr = parts[0].replace("--- COMPILE STDERR ---", "").strip()
+                    sim_stderr = parts[1].strip()
+                else:
+                    compile_stderr = job.stderr
+
+            save_artifact(job.stdout, "stdout.txt", "stdout")
+            save_artifact(job.stderr, "stderr.txt", "stderr")
+            save_artifact(f"--- COMPILE STDOUT ---\n{compile_stdout}\n\n--- COMPILE STDERR ---\n{compile_stderr}", "compile.log", "compile_log")
+            save_artifact(f"--- SIMULATION STDOUT ---\n{sim_stdout}\n\n--- SIMULATION STDERR ---\n{sim_stderr}", "simulation.log", "simulation_log")
+
+            # Capture optional waveform.vcd if generated
+            sim_waveform_path = os.path.join(out_dir, "waveform.vcd")
+            if os.path.exists(sim_waveform_path):
+                dest_waveform_path = os.path.join(attempt_dir, "waveform.vcd")
+                shutil.copy2(sim_waveform_path, dest_waveform_path)
+                size = os.path.getsize(dest_waveform_path)
+                chk = calculate_sha256(dest_waveform_path)
+                art = SimulationArtifact(
+                    job_id=job.id,
+                    attempt_id=attempt.id,
+                    artifact_type="waveform",
+                    filename="waveform.vcd",
+                    path=dest_waveform_path,
+                    size_bytes=size,
+                    checksum=chk
+                )
+                db.add(art)
+
+            db.commit()
+            # Clean up the temp out_dir to save disk space
+            try:
+                shutil.rmtree(out_dir)
+            except Exception:
+                pass
+        except Exception as ae:
+            logger.error(f"Error collecting artifacts for job {job_id}: {ae}")
+
         logger.info(f"Job {job_id} attempt {job.attempt_count} completed with status {job.status}")
 
     except Exception as e:
