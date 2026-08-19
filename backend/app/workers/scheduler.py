@@ -124,8 +124,8 @@ def process_job(job_id: str):
 
     try:
         # Map design/test names to paths
-        rtl_path = os.path.join(RTL_BASE, job.design_name, f"{job.design_name}.sv")
-        tb_path = os.path.join(TB_BASE, job.design_name, f"tb_{job.design_name}_{job.test_name}.cpp")
+        rtl_path = job.rtl_path or os.path.join(RTL_BASE, job.design_name, f"{job.design_name}.sv")
+        tb_path = job.testbench_path or os.path.join(TB_BASE, job.design_name, f"tb_{job.design_name}_{job.test_name}.cpp")
 
         # Validate paths
         if not os.path.exists(rtl_path):
@@ -137,7 +137,12 @@ def process_job(job_id: str):
         out_dir = os.path.join(OUT_BASE, job_id)
         os.makedirs(out_dir, exist_ok=True)
 
-        exit_code, stdout, stderr, runtime_ms = run_verilator(rtl_path, tb_path, out_dir)
+        # Check if coverage is enabled in configuration
+        coverage_enabled = False
+        if job.configuration and isinstance(job.configuration, dict):
+            coverage_enabled = job.configuration.get("coverage", False)
+
+        exit_code, stdout, stderr, runtime_ms = run_verilator(rtl_path, tb_path, out_dir, coverage_enabled=coverage_enabled)
 
         job.exit_code = exit_code
         job.stdout = stdout
@@ -243,6 +248,32 @@ def process_job(job_id: str):
                     artifact_type="waveform",
                     filename="waveform.vcd",
                     path=dest_waveform_path,
+                    size_bytes=size,
+                    checksum=chk
+                )
+                db.add(art)
+
+            # Capture optional coverage.dat if generated
+            coverage_file = os.path.join(out_dir, "coverage.dat")
+            if not os.path.exists(coverage_file):
+                coverage_file = os.path.join(out_dir, "logs", "coverage.dat")
+            if not os.path.exists(coverage_file):
+                import glob
+                dat_files = glob.glob(os.path.join(out_dir, "**", "*.dat"), recursive=True)
+                if dat_files:
+                    coverage_file = dat_files[0]
+
+            if os.path.exists(coverage_file):
+                dest_cov_path = os.path.join(attempt_dir, os.path.basename(coverage_file))
+                shutil.copy2(coverage_file, dest_cov_path)
+                size = os.path.getsize(dest_cov_path)
+                chk = calculate_sha256(dest_cov_path)
+                art = SimulationArtifact(
+                    job_id=job.id,
+                    attempt_id=attempt.id,
+                    artifact_type="coverage",
+                    filename=os.path.basename(dest_cov_path),
+                    path=dest_cov_path,
                     size_bytes=size,
                     checksum=chk
                 )

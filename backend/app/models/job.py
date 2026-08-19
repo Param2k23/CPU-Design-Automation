@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from sqlalchemy import Column, String, Integer, DateTime, Text, Float, JSON, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, Text, Float, JSON, ForeignKey, Boolean
 from app.database import Base
 
 class SimulationJob(Base):
@@ -27,6 +27,8 @@ class SimulationJob(Base):
     failure_summary = Column(Text, nullable=True)
     remediation = Column(Text, nullable=True)
     result_artifact_path = Column(String, nullable=True)
+    regression_id = Column(String, ForeignKey("regression_runs.id"), nullable=True)
+    configuration = Column(JSON, nullable=True)
 
 class SimulationAttempt(Base):
     __tablename__ = "simulation_attempts"
@@ -82,5 +84,33 @@ class SimulationArtifact(Base):
     size_bytes = Column(Integer, nullable=False)
     checksum = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class Design(Base):
+    __tablename__ = "designs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    rtl_path = Column(String, nullable=False)
+    testbench_path = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+class RegressionRun(Base):
+    __tablename__ = "regression_runs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+    status = Column(String, default="QUEUED", nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    total_jobs = Column(Integer, default=0, nullable=False)
+    passed_jobs = Column(Integer, default=0, nullable=False)
+    failed_jobs = Column(Integer, default=0, nullable=False)
+    skipped_jobs = Column(Integer, default=0, nullable=False)
+    priority = Column(String, default="normal", nullable=False)
+    configuration = Column(JSON, nullable=True)
 
 

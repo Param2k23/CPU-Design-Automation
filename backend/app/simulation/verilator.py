@@ -2,7 +2,7 @@ import subprocess
 import os
 import time
 
-def run_verilator(rtl_path: str, testbench_path: str, output_dir: str):
+def run_verilator(rtl_path: str, testbench_path: str, output_dir: str, coverage_enabled: bool = False):
     """
     Run Verilator on the given RTL and testbench safely.
     Returns (exit_code, stdout, stderr, runtime_ms)
@@ -24,6 +24,8 @@ def run_verilator(rtl_path: str, testbench_path: str, output_dir: str):
         "--build",
         "-Wall" # Enable all warnings, helps with failure detection
     ]
+    if coverage_enabled:
+        compile_cmd.append("--coverage")
     
     try:
         compile_result = subprocess.run(
