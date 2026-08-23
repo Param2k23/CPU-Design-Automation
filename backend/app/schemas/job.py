@@ -24,6 +24,7 @@ class JobResponse(BaseModel):
     runtime_ms: Optional[int] = None
     failure_category: Optional[str] = None
     configuration: Optional[dict] = None
+    triggering_analysis_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,6 +46,7 @@ class SimulationAttemptResponse(BaseModel):
     runtime_ms: Optional[int] = None
     failure_category: Optional[str] = None
     created_at: datetime
+    triggering_analysis_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,6 +61,15 @@ class FailureAnalysisResponse(BaseModel):
     recommended_fix: str
     confidence: float
     created_at: datetime
+    
+    # Milestone 6 properties
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    prompt_id: Optional[str] = None
+    affected_component: Optional[str] = None
+    suggested_next_test: Optional[str] = None
+    analysis_status: Optional[str] = None
+    analysis_source: Optional[str] = "ORIGINAL"
 
     model_config = ConfigDict(from_attributes=True)
 

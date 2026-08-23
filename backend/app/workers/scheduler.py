@@ -176,9 +176,12 @@ def process_job(job_id: str):
             runtime_ms=job.runtime_ms,
             stdout=job.stdout,
             stderr=job.stderr,
-            failure_category=job.failure_category
+            failure_category=job.failure_category,
+            triggering_analysis_id=job.triggering_analysis_id
         )
         db.add(attempt)
+        # Clear consumed triggering_analysis_id
+        job.triggering_analysis_id = None
         db.commit()
 
         # Collect and save artifacts
@@ -307,9 +310,12 @@ def process_job(job_id: str):
             runtime_ms=0,
             stdout="",
             stderr=str(e),
-            failure_category="INFRASTRUCTURE_ERROR"
+            failure_category="INFRASTRUCTURE_ERROR",
+            triggering_analysis_id=job.triggering_analysis_id
         )
         db.add(attempt)
+        # Clear consumed triggering_analysis_id
+        job.triggering_analysis_id = None
         db.commit()
     finally:
         with active_slots_lock:

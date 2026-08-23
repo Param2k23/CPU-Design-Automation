@@ -25,6 +25,17 @@ db_migration = SessionLocal()
 try:
     db_migration.execute(text("ALTER TABLE simulation_jobs ADD COLUMN IF NOT EXISTS regression_id VARCHAR"))
     db_migration.execute(text("ALTER TABLE simulation_jobs ADD COLUMN IF NOT EXISTS configuration JSON"))
+    db_migration.execute(text("ALTER TABLE simulation_jobs ADD COLUMN IF NOT EXISTS triggering_analysis_id VARCHAR"))
+    
+    db_migration.execute(text("ALTER TABLE simulation_attempts ADD COLUMN IF NOT EXISTS triggering_analysis_id VARCHAR"))
+    
+    db_migration.execute(text("ALTER TABLE failure_analyses ADD COLUMN IF NOT EXISTS provider VARCHAR"))
+    db_migration.execute(text("ALTER TABLE failure_analyses ADD COLUMN IF NOT EXISTS model VARCHAR"))
+    db_migration.execute(text("ALTER TABLE failure_analyses ADD COLUMN IF NOT EXISTS prompt_id VARCHAR"))
+    db_migration.execute(text("ALTER TABLE failure_analyses ADD COLUMN IF NOT EXISTS affected_component VARCHAR"))
+    db_migration.execute(text("ALTER TABLE failure_analyses ADD COLUMN IF NOT EXISTS suggested_next_test VARCHAR"))
+    db_migration.execute(text("ALTER TABLE failure_analyses ADD COLUMN IF NOT EXISTS analysis_status VARCHAR"))
+    db_migration.execute(text("ALTER TABLE failure_analyses ADD COLUMN IF NOT EXISTS analysis_source VARCHAR"))
     db_migration.commit()
 except Exception as e:
     db_migration.rollback()
@@ -133,14 +144,106 @@ def retry_job(job_id: str, db: Session = Depends(get_db)):
 
     return job
 
+from pydantic import BaseModel
+import time
+from typing import Optional
+
+class AnalyzeRequest(BaseModel):
+    analyzer: Optional[str] = "hybrid"
+
+class RevalidateRequest(BaseModel):
+    triggering_analysis_id: Optional[str] = None
+
+class DebugRequest(BaseModel):
+    analyzer: Optional[str] = "hybrid"
+    auto_revalidate: Optional[bool] = False
+
+# Global Prometheus Metrics dictionary
+METRICS = {
+    "analysis_total": 0,
+    "analysis_success_total": 0,
+    "analysis_failure_total": 0,
+    "llm_requests_total": 0,
+    "llm_failures_total": 0,
+    "llm_latency_seconds": 0.0,
+    "analysis_reused_total": 0,
+    "auto_revalidation_total": 0,
+}
+
+def find_reusable_analysis(job, db: Session):
+    cat = job.failure_category or "UNKNOWN"
+    raw_err = get_representative_error(job)
+    norm_err = normalize_error_text(raw_err)
+    
+    # Query for other jobs with same design, category and status
+    same_jobs = db.query(SimulationJob).filter(
+        SimulationJob.design_name == job.design_name,
+        SimulationJob.failure_category == job.failure_category,
+        SimulationJob.status == "FAILED",
+        SimulationJob.id != job.id
+    ).all()
+    
+    for other_job in same_jobs:
+        other_raw = get_representative_error(other_job)
+        other_norm = normalize_error_text(other_raw)
+        if other_norm == norm_err:
+            # Found job with equivalent failure, check for a successful LLM or hybrid analysis
+            analysis = db.query(FailureAnalysis).filter(
+                FailureAnalysis.job_id == other_job.id,
+                FailureAnalysis.analyzer_type.in_(["llm", "hybrid"]),
+                FailureAnalysis.analysis_status == "SUCCESS"
+            ).order_by(FailureAnalysis.created_at.desc()).first()
+            if analysis:
+                return analysis
+    return None
+
 @app.post("/jobs/{job_id}/analyze", response_model=FailureAnalysisResponse)
-def analyze_job(job_id: str, db: Session = Depends(get_db)):
+def analyze_job(job_id: str, req: Optional[AnalyzeRequest] = None, db: Session = Depends(get_db)):
     job = db.query(SimulationJob).filter(SimulationJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status != "FAILED":
         raise HTTPException(status_code=400, detail="Only failed jobs can be analyzed")
         
+    analyzer_name = "rule_based"
+    if req and req.analyzer:
+        analyzer_name = req.analyzer
+    else:
+        analyzer_name = os.getenv("FAILURE_ANALYZER", "rule_based")
+    METRICS["analysis_total"] += 1
+    
+    # Check for cache reuse (only for hybrid or llm analyzers)
+    reused_analysis = None
+    if analyzer_name in ("llm", "hybrid"):
+        reused_analysis = find_reusable_analysis(job, db)
+        
+    if reused_analysis:
+        METRICS["analysis_reused_total"] += 1
+        METRICS["analysis_success_total"] += 1
+        
+        analysis = FailureAnalysis(
+            job_id=job.id,
+            analyzer_type=reused_analysis.analyzer_type,
+            failure_category=reused_analysis.failure_category,
+            summary=reused_analysis.summary,
+            suspected_root_cause=reused_analysis.suspected_root_cause,
+            evidence=reused_analysis.evidence,
+            recommended_fix=reused_analysis.recommended_fix,
+            confidence=reused_analysis.confidence,
+            provider=reused_analysis.provider,
+            model=reused_analysis.model,
+            prompt_id=reused_analysis.prompt_id,
+            affected_component=reused_analysis.affected_component,
+            suggested_next_test=reused_analysis.suggested_next_test,
+            analysis_status="SUCCESS",
+            analysis_source="REUSED"
+        )
+        db.add(analysis)
+        job.remediation = reused_analysis.recommended_fix
+        db.commit()
+        db.refresh(analysis)
+        return analysis
+
     # Load optional context
     artifacts = db.query(SimulationArtifact).filter(SimulationArtifact.job_id == job_id).all()
     art_meta = [
@@ -170,7 +273,34 @@ def analyze_job(job_id: str, db: Session = Depends(get_db)):
             except Exception:
                 pass
 
-    analyzer = get_failure_analyzer()
+    # Trace execution attempts to find attempt number
+    attempts = db.query(SimulationAttempt).filter(SimulationAttempt.job_id == job_id).all()
+    attempt_num = len(attempts) or 1
+    
+    prev_analyses_records = db.query(FailureAnalysis).filter(FailureAnalysis.job_id == job_id).all()
+    prev_analyses = [
+        {
+            "analyzer_type": pa.analyzer_type,
+            "failure_category": pa.failure_category,
+            "summary": pa.summary,
+            "recommended_fix": pa.recommended_fix
+        }
+        for pa in prev_analyses_records
+    ]
+    
+    regression_context = {}
+    if job.regression_id:
+        reg = db.query(RegressionRun).filter(RegressionRun.id == job.regression_id).first()
+        if reg:
+            regression_context = {
+                "regression_id": reg.id,
+                "regression_name": reg.name,
+                "total_jobs": reg.total_jobs
+            }
+
+    analyzer = get_failure_analyzer(analyzer_name)
+    
+    start_time = time.time()
     result = analyzer.analyze(
         design_name=job.design_name,
         test_name=job.test_name,
@@ -183,8 +313,23 @@ def analyze_job(job_id: str, db: Session = Depends(get_db)):
         compile_logs=compile_logs,
         simulation_logs=simulation_logs,
         failure_category=job.failure_category,
-        artifact_metadata=art_meta
+        artifact_metadata=art_meta,
+        attempt_number=attempt_num,
+        regression_context=regression_context,
+        previous_analyses=prev_analyses
     )
+    latency = time.time() - start_time
+    
+    if result.get("analyzer_type") in ("llm", "hybrid") and result.get("provider") is not None:
+        METRICS["llm_requests_total"] += 1
+        METRICS["llm_latency_seconds"] += latency
+        if result.get("analysis_status") == "FAILED":
+            METRICS["llm_failures_total"] += 1
+
+    if result.get("analysis_status") == "SUCCESS":
+        METRICS["analysis_success_total"] += 1
+    else:
+        METRICS["analysis_failure_total"] += 1
     
     analysis = FailureAnalysis(
         job_id=job.id,
@@ -194,7 +339,14 @@ def analyze_job(job_id: str, db: Session = Depends(get_db)):
         suspected_root_cause=result["suspected_root_cause"],
         evidence=result["evidence"],
         recommended_fix=result["recommended_fix"],
-        confidence=result["confidence"]
+        confidence=result["confidence"],
+        provider=result.get("provider"),
+        model=result.get("model"),
+        prompt_id=result.get("prompt_id"),
+        affected_component=result.get("affected_component"),
+        suggested_next_test=result.get("suggested_next_test"),
+        analysis_status=result.get("analysis_status"),
+        analysis_source="ORIGINAL"
     )
     db.add(analysis)
     
@@ -214,11 +366,31 @@ def get_job_analyses(job_id: str, db: Session = Depends(get_db)):
     analyses = db.query(FailureAnalysis).filter(FailureAnalysis.job_id == job_id).order_by(FailureAnalysis.created_at.desc()).all()
     return analyses
 
-@app.post("/jobs/{job_id}/revalidate", response_model=JobResponse)
-def revalidate_job(job_id: str, db: Session = Depends(get_db)):
+@app.get("/jobs/{job_id}/analyses/{analysis_id}", response_model=FailureAnalysisResponse)
+def get_job_analysis(job_id: str, analysis_id: str, db: Session = Depends(get_db)):
     job = db.query(SimulationJob).filter(SimulationJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    analysis = db.query(FailureAnalysis).filter(
+        FailureAnalysis.id == analysis_id,
+        FailureAnalysis.job_id == job_id
+    ).first()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return analysis
+
+@app.post("/jobs/{job_id}/revalidate", response_model=JobResponse)
+def revalidate_job(job_id: str, req: Optional[RevalidateRequest] = None, db: Session = Depends(get_db)):
+    job = db.query(SimulationJob).filter(SimulationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    if req and req.triggering_analysis_id:
+        # verify analysis exists
+        analysis = db.query(FailureAnalysis).filter(FailureAnalysis.id == req.triggering_analysis_id).first()
+        if not analysis:
+            raise HTTPException(status_code=400, detail="Triggering analysis not found")
+        job.triggering_analysis_id = req.triggering_analysis_id
     
     job.status = "QUEUED"
     db.commit()
@@ -226,6 +398,37 @@ def revalidate_job(job_id: str, db: Session = Depends(get_db)):
     
     enqueue_job(job.id, priority=job.priority)
     return job
+
+@app.post("/jobs/{job_id}/debug")
+def debug_job(job_id: str, req: Optional[DebugRequest] = None, db: Session = Depends(get_db)):
+    job = db.query(SimulationJob).filter(SimulationJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "FAILED":
+        raise HTTPException(status_code=400, detail="Only failed jobs can be debugged")
+        
+    analyzer_name = req.analyzer if req else "hybrid"
+    auto_reval = req.auto_revalidate if req else False
+    
+    # Run analysis
+    analysis_req = AnalyzeRequest(analyzer=analyzer_name)
+    analysis = analyze_job(job_id=job_id, req=analysis_req, db=db)
+    
+    # If auto_revalidate=True, trigger revalidation
+    if auto_reval:
+        METRICS["auto_revalidation_total"] += 1
+        reval_req = RevalidateRequest(triggering_analysis_id=analysis.id)
+        revalidate_job(job_id=job_id, req=reval_req, db=db)
+        
+    # Re-fetch job status to return updated status if revalidated
+    db.refresh(job)
+    
+    return {
+        "analysis": analysis,
+        "job_status": job.status,
+        "job_id": job.id,
+        "revalidated": auto_reval
+    }
 
 @app.get("/workers", response_model=list[WorkerStatusResponse])
 def get_workers(db: Session = Depends(get_db)):
@@ -390,6 +593,38 @@ regression_duration_seconds {reg_duration}
 # HELP failure_clusters_total Total regression failure clusters
 # TYPE failure_clusters_total counter
 failure_clusters_total {failure_clusters_total}
+
+# HELP cpu_verification_analysis_total Total failure analyses executed
+# TYPE cpu_verification_analysis_total counter
+cpu_verification_analysis_total {METRICS['analysis_total']}
+
+# HELP cpu_verification_analysis_success_total Total successful analyses
+# TYPE cpu_verification_analysis_success_total counter
+cpu_verification_analysis_success_total {METRICS['analysis_success_total']}
+
+# HELP cpu_verification_analysis_failure_total Total failed analyses
+# TYPE cpu_verification_analysis_failure_total counter
+cpu_verification_analysis_failure_total {METRICS['analysis_failure_total']}
+
+# HELP cpu_verification_llm_requests_total Total LLM analyzer requests
+# TYPE cpu_verification_llm_requests_total counter
+cpu_verification_llm_requests_total {METRICS['llm_requests_total']}
+
+# HELP cpu_verification_llm_failures_total Total failed LLM analyzer requests
+# TYPE cpu_verification_llm_failures_total counter
+cpu_verification_llm_failures_total {METRICS['llm_failures_total']}
+
+# HELP cpu_verification_llm_latency_seconds Cumulative LLM analyzer request latency in seconds
+# TYPE cpu_verification_llm_latency_seconds counter
+cpu_verification_llm_latency_seconds {METRICS['llm_latency_seconds']}
+
+# HELP cpu_verification_analysis_reused_total Total failure analyses reused from cache
+# TYPE cpu_verification_analysis_reused_total counter
+cpu_verification_analysis_reused_total {METRICS['analysis_reused_total']}
+
+# HELP cpu_verification_auto_revalidation_total Total auto-revalidations triggered
+# TYPE cpu_verification_auto_revalidation_total counter
+cpu_verification_auto_revalidation_total {METRICS['auto_revalidation_total']}
 """
     return Response(content=metrics_str, media_type="text/plain")
 
@@ -1049,3 +1284,68 @@ def get_regression_history(regression_id: str, db: Session = Depends(get_db)):
         
     history.sort(key=lambda x: x["timestamp"])
     return history
+
+@app.get("/regressions/{regression_id}/intelligence")
+def get_regression_intelligence(regression_id: str, db: Session = Depends(get_db)):
+    reg = db.query(RegressionRun).filter(RegressionRun.id == regression_id).first()
+    if not reg:
+        raise HTTPException(status_code=404, detail="Regression not found")
+        
+    jobs = db.query(SimulationJob).filter(SimulationJob.regression_id == regression_id).all()
+    failed_jobs = [j for j in jobs if j.status == "FAILED"]
+    
+    # Unique failure clusters calculation
+    clusters = {}
+    affected_designs = set()
+    failure_categories = {}
+    
+    for j in failed_jobs:
+        affected_designs.add(j.design_name)
+        cat = j.failure_category or "UNKNOWN"
+        failure_categories[cat] = failure_categories.get(cat, 0) + 1
+        
+        raw_err = get_representative_error(j)
+        norm_err = normalize_error_text(raw_err)
+        cluster_key = (cat, norm_err)
+        if cluster_key not in clusters:
+            clusters[cluster_key] = []
+        clusters[cluster_key].append(j.id)
+        
+    top_root_causes = []
+    recommended_actions = []
+    
+    for (cat, norm_err), job_ids in clusters.items():
+        # Get one representative failure analysis if it exists
+        rep_job_id = job_ids[0]
+        analysis = db.query(FailureAnalysis).filter(FailureAnalysis.job_id == rep_job_id).order_by(FailureAnalysis.created_at.desc()).first()
+        if analysis:
+            top_root_causes.append(analysis.suspected_root_cause)
+            recommended_actions.append(analysis.recommended_fix)
+        else:
+            # Generate default based on category
+            if cat == "TIMEOUT":
+                top_root_causes.append(f"Simulation timeout on {norm_err[:30]}...")
+                recommended_actions.append("Increase simulation timeout or fix infinite state transitions.")
+            elif cat == "COMPILE_ERROR":
+                top_root_causes.append(f"Compiler syntax/syntax errors: {norm_err[:30]}...")
+                recommended_actions.append("Fix design compilation or testbench mismatch.")
+            elif cat == "ASSERTION_FAILURE":
+                top_root_causes.append(f"Assertion failed: {norm_err[:30]}...")
+                recommended_actions.append("Analyze trace around failing assertion; verify inputs.")
+            else:
+                top_root_causes.append(f"Generic error: {norm_err[:30]}...")
+                recommended_actions.append("Check logs manually.")
+
+    # Deduplicate top root causes and recommended actions
+    top_root_causes = list(dict.fromkeys(top_root_causes))
+    recommended_actions = list(dict.fromkeys(recommended_actions))
+    
+    return {
+        "regression_id": reg.id,
+        "total_failures": len(failed_jobs),
+        "unique_failure_clusters": len(clusters),
+        "failure_categories": failure_categories,
+        "affected_designs": list(affected_designs),
+        "top_root_causes": top_root_causes,
+        "recommended_actions": recommended_actions
+    }

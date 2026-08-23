@@ -29,6 +29,7 @@ class SimulationJob(Base):
     result_artifact_path = Column(String, nullable=True)
     regression_id = Column(String, ForeignKey("regression_runs.id"), nullable=True)
     configuration = Column(JSON, nullable=True)
+    triggering_analysis_id = Column(String, ForeignKey("failure_analyses.id"), nullable=True)
 
 class SimulationAttempt(Base):
     __tablename__ = "simulation_attempts"
@@ -45,6 +46,7 @@ class SimulationAttempt(Base):
     stderr = Column(Text, nullable=True)
     failure_category = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    triggering_analysis_id = Column(String, ForeignKey("failure_analyses.id"), nullable=True)
 
 class FailureAnalysis(Base):
     __tablename__ = "failure_analyses"
@@ -59,6 +61,15 @@ class FailureAnalysis(Base):
     recommended_fix = Column(Text, nullable=False)
     confidence = Column(Float, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Milestone 6 AI failure analyzer extensions
+    provider = Column(String, nullable=True)
+    model = Column(String, nullable=True)
+    prompt_id = Column(String, nullable=True)
+    affected_component = Column(String, nullable=True)
+    suggested_next_test = Column(String, nullable=True)
+    analysis_status = Column(String, nullable=True)
+    analysis_source = Column(String, default="ORIGINAL", nullable=True)
 
 class WorkerStatus(Base):
     __tablename__ = "worker_statuses"
