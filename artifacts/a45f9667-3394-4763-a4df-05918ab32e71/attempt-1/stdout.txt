@@ -1,0 +1,4 @@
+--- COMPILE STDOUT ---
+Cache hit - compilation skipped
+--- SIMULATION STDOUT ---
+All passing tests completed successfully.

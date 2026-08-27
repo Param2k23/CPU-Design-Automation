@@ -13,34 +13,89 @@ def run_verilator(rtl_path: str, testbench_path: str, output_dir: str, coverage_
     # The output directory for verilator obj_dir is set.
     obj_dir = os.path.join(output_dir, "obj_dir")
     
-    # Example compile command for Verilator
-    # verilator --cc <rtl> --exe <testbench> -Mdir <obj_dir> --build
-    compile_cmd = [
-        "verilator",
-        "--trace",
-        "--cc", rtl_path,
-        "--exe", testbench_path,
-        "-Mdir", obj_dir,
-        "--build",
-        "-Wall" # Enable all warnings, helps with failure detection
-    ]
-    if coverage_enabled:
-        compile_cmd.append("--coverage")
+    rtl_basename = os.path.splitext(os.path.basename(rtl_path))[0]
+    
+    # Try to check cache first
+    import hashlib
+    import shutil
+    
+    cache_key = None
+    cache_base = "/app/simulations/cache"
+    cache_hit = False
     
     try:
-        compile_result = subprocess.run(
-            compile_cmd,
-            capture_output=True,
-            text=True,
-            timeout=60 # 60 second compilation timeout
-        )
-    except subprocess.TimeoutExpired as e:
-        runtime_ms = int((time.time() - start_time) * 1000)
-        return (-1, e.stdout.decode() if e.stdout else "", "Compilation Timeout", runtime_ms)
+        def _get_sha256(file_path):
+            h = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+            
+        rtl_hash = _get_sha256(rtl_path)
+        tb_hash = _get_sha256(testbench_path)
+        cache_key = hashlib.sha256(f"{rtl_hash}_{tb_hash}_{coverage_enabled}".encode()).hexdigest()
         
-    if compile_result.returncode != 0:
-        runtime_ms = int((time.time() - start_time) * 1000)
-        return (compile_result.returncode, compile_result.stdout, compile_result.stderr, runtime_ms)
+        cache_dir = os.path.join(cache_base, cache_key)
+        cached_obj_dir = os.path.join(cache_dir, "obj_dir")
+        cached_exe = os.path.join(cached_obj_dir, f"V{rtl_basename}")
+        
+        if os.path.exists(cached_exe):
+            if os.path.exists(obj_dir):
+                shutil.rmtree(obj_dir)
+            shutil.copytree(cached_obj_dir, obj_dir)
+            cache_hit = True
+    except Exception:
+        pass
+        
+    if cache_hit:
+        compile_returncode = 0
+        compile_stdout = "Cache hit - compilation skipped"
+        compile_stderr = ""
+    else:
+        # Example compile command for Verilator
+        # verilator --cc <rtl> --exe <testbench> -Mdir <obj_dir> --build
+        compile_cmd = [
+            "verilator",
+            "--trace",
+            "--cc", rtl_path,
+            "--exe", testbench_path,
+            "-Mdir", obj_dir,
+            "--build",
+            "-Wall" # Enable all warnings, helps with failure detection
+        ]
+        if coverage_enabled:
+            compile_cmd.append("--coverage")
+        
+        try:
+            compile_result = subprocess.run(
+                compile_cmd,
+                capture_output=True,
+                text=True,
+                timeout=60 # 60 second compilation timeout
+            )
+            compile_returncode = compile_result.returncode
+            compile_stdout = compile_result.stdout
+            compile_stderr = compile_result.stderr
+        except subprocess.TimeoutExpired as e:
+            runtime_ms = int((time.time() - start_time) * 1000)
+            return (-1, e.stdout.decode() if e.stdout else "", "Compilation Timeout", runtime_ms)
+            
+        if compile_returncode == 0 and cache_key:
+            try:
+                os.makedirs(cache_base, exist_ok=True)
+                temp_cache_dir = os.path.join(cache_base, f"{cache_key}_tmp_{os.getpid()}_{int(time.time())}")
+                shutil.copytree(obj_dir, os.path.join(temp_cache_dir, "obj_dir"))
+                cache_dir = os.path.join(cache_base, cache_key)
+                if not os.path.exists(cache_dir):
+                    os.rename(temp_cache_dir, cache_dir)
+                else:
+                    shutil.rmtree(temp_cache_dir)
+            except Exception:
+                pass
+                
+        if compile_returncode != 0:
+            runtime_ms = int((time.time() - start_time) * 1000)
+            return (compile_returncode, compile_stdout, compile_stderr, runtime_ms)
         
     # Example execution command
     # The executable is named after the RTL file. e.g. V<rtl_basename>
@@ -62,8 +117,8 @@ def run_verilator(rtl_path: str, testbench_path: str, output_dir: str, coverage_
     runtime_ms = int((time.time() - start_time) * 1000)
     
     # Combine compile and sim outputs for the final logs
-    stdout = f"--- COMPILE STDOUT ---\n{compile_result.stdout}\n--- SIMULATION STDOUT ---\n{sim_result.stdout}"
-    stderr = f"--- COMPILE STDERR ---\n{compile_result.stderr}\n--- SIMULATION STDERR ---\n{sim_result.stderr}"
+    stdout = f"--- COMPILE STDOUT ---\n{compile_stdout}\n--- SIMULATION STDOUT ---\n{sim_result.stdout}"
+    stderr = f"--- COMPILE STDERR ---\n{compile_stderr}\n--- SIMULATION STDERR ---\n{sim_result.stderr}"
 
     return (sim_result.returncode, stdout, stderr, runtime_ms)
 

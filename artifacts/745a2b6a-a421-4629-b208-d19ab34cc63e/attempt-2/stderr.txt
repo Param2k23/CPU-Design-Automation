@@ -1,0 +1,4 @@
+--- COMPILE STDERR ---
+
+--- SIMULATION STDERR ---
+Assertion failed: Expected 999 but got 30

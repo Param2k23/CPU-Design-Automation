@@ -1,0 +1,3 @@
+--- COMPILE STDOUT ---
+Cache hit - compilation skipped
+--- SIMULATION STDOUT ---

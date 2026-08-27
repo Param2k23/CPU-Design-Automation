@@ -1,0 +1,7 @@
+%Warning-UNUSEDSIGNAL: /app/rtl/cache/cache.sv:6:25: Bits of signal are not used: 'addr'[1:0]
+                                                   : ... note: In instance 'cache'
+    6 |     input  logic [31:0] addr,
+      |                         ^~~~
+                       ... For warning description see https://verilator.org/warn/UNUSEDSIGNAL?v=5.032
+                       ... Use "/* verilator lint_off UNUSEDSIGNAL */" and lint_on around source to disable this message.
+%Error: Exiting due to 1 warning(s)

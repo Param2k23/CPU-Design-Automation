@@ -1,0 +1,37 @@
+%Warning-MULTIDRIVEN: /app/rtl/fifo/fifo.sv:45:9: Variable written to in always_comb also written by other process (IEEE 1800-2023 9.2.2.2): 'full'
+                                                : ... note: In instance 'fifo'
+                      /app/rtl/fifo/fifo.sv:45:9: 
+   45 |         full  = (count == DEPTH);
+      |         ^~~~
+                      /app/rtl/fifo/fifo.sv:23:13: ... Location of other write
+   23 |             full   <= 0;
+      |             ^~~~
+                      ... For warning description see https://verilator.org/warn/MULTIDRIVEN?v=5.032
+                      ... Use "/* verilator lint_off MULTIDRIVEN */" and lint_on around source to disable this message.
+%Warning-MULTIDRIVEN: /app/rtl/fifo/fifo.sv:46:9: Variable written to in always_comb also written by other process (IEEE 1800-2023 9.2.2.2): 'empty'
+                                                : ... note: In instance 'fifo'
+                      /app/rtl/fifo/fifo.sv:46:9: 
+   46 |         empty = (count == 0);
+      |         ^~~~~
+                      /app/rtl/fifo/fifo.sv:24:13: ... Location of other write
+   24 |             empty  <= 1;
+      |             ^~~~~
+%Error-BLKANDNBLK: /app/rtl/fifo/fifo.sv:8:25: Unsupported: Blocked and non-blocking assignments to same variable: 'full'
+    8 |     output logic        full,
+      |                         ^~~~
+                   /app/rtl/fifo/fifo.sv:45:15: ... Location of blocking assignment
+   45 |         full  = (count == DEPTH);
+      |               ^
+                   /app/rtl/fifo/fifo.sv:23:20: ... Location of nonblocking assignment
+   23 |             full   <= 0;
+      |                    ^~
+%Error-BLKANDNBLK: /app/rtl/fifo/fifo.sv:9:25: Unsupported: Blocked and non-blocking assignments to same variable: 'empty'
+    9 |     output logic        empty
+      |                         ^~~~~
+                   /app/rtl/fifo/fifo.sv:46:15: ... Location of blocking assignment
+   46 |         empty = (count == 0);
+      |               ^
+                   /app/rtl/fifo/fifo.sv:24:20: ... Location of nonblocking assignment
+   24 |             empty  <= 1;
+      |                    ^~
+%Error: Exiting due to 2 error(s), 2 warning(s)
