@@ -1,8 +1,6 @@
-# Codebase Zero to Hero: CPU Design Automation & AI Debugging Platform
+# Codebase Architecture & Deep Dive: CPU Design Automation & AI Debugging Platform
 
-Welcome! This document is designed to take you from absolute zero knowledge of CPU design/EDA tools to an interview-ready, deep technical understanding of the **CPU Design Automation & AI Debugging Platform** in this repository. 
-
-As a candidate for Intel's **Design Automation & DevOps Software Engineer** role, you do not need to be a hardware architect. Instead, your value lies in building the robust, highly scalable, and secure **software infrastructure** that compiles, simulates, schedules, and debugs hardware designs.
+Welcome! This document provides a comprehensive technical overview and deep architectural breakdown of the **CPU Design Automation & AI Debugging Platform** in this repository. It bridges the gap between CPU design/EDA tools and software engineering—guiding you through the software infrastructure designed to compile, simulate, schedule, and debug hardware designs.
 
 ---
 
@@ -850,7 +848,7 @@ backend/tests/
 
 ## 23. Key Source Files Walkthrough
 
-Here are the critical source files you should review before your interview:
+Below is a detailed walkthrough of the critical source files implementing the core application logic:
 
 ### 1. [`backend/app/main.py`](file:///d:/VS/CPU-Design-Automation/backend/app/main.py)
 * **Purpose:** Exposes API routes, handles database migrations, and seeds default designs.
@@ -876,7 +874,7 @@ Here are the critical source files you should review before your interview:
 
 ---
 
-## 24. Interview Preparation Q&A
+## 24. System Architecture & FAQs
 
 ### Q1: Why use Redis for the queue instead of SQL?
 * **Short Answer:** Redis handles high-concurrency, low-latency queue operations in memory, whereas database polling can cause transaction lock contention.
@@ -893,7 +891,7 @@ Here are the critical source files you should review before your interview:
 
 ## 25. Architectural Design Decisions and Trade-offs
 
-When presenting this project in an interview, you should focus on the technical decisions and design trade-offs you made during development:
+The platform was designed with specific software engineering patterns and engineering trade-offs:
 
 1. **In-Memory Queue (Redis) vs. Database Polling (PostgreSQL):**
    - **Trade-off:** Redis adds another infrastructure component to maintain, but it prevents database lock contention.
@@ -914,12 +912,9 @@ When presenting this project in an interview, you should focus on the technical 
 
 ---
 
-## 26. Project Walkthroughs
+## 26. Project Overview Summary
 
-### The 5-Minute Pitch:
-> *"I built a distributed automation and debugging platform for RTL verification. When verifying hardware designs, engineers run millions of simulations to find edge-case bugs. Managing these runs manually is time-consuming. My platform automates this workflow: it accepts simulation requests via a FastAPI interface, schedules them based on priority using Redis, and runs simulations inside Docker containers using Verilator. 
-> 
-> If a simulation fails, the platform automatically parses the logs using Regex and LLM rules to identify the root cause and suggest fixes. The system also exposes metrics to Prometheus and Grafana, allowing teams to monitor performance and debug infrastructure issues. This project demonstrates how modern DevOps practices can improve hardware verification workflows."*
+This project implements a distributed automation and debugging platform for RTL verification. In modern hardware verification workflows, running and managing thousands of cycle-accurate simulations manually becomes a major operational bottleneck. This platform resolves that bottleneck by establishing a scalable web-based queue scheduler (Redis/PostgreSQL) and automated hybrid failure analysis (deterministic rules merged with LLMs). It showcases how modern DevOps practices and cloud-native patterns can be applied directly to hardware design and verification infrastructure.
 
 ---
 
@@ -935,12 +930,12 @@ When presenting this project in an interview, you should focus on the technical 
 
 ---
 
-## 28. Candidate Checklist
+## 28. Core System Verification Checklist
 
-Before your interview, make sure you can answer the following questions:
-- [ ] What problem does this platform solve? (Automates and schedules simulation workloads).
-- [ ] Why compile RTL with Verilator? (Translates SystemVerilog to high-performance C++ classes).
-- [ ] Why use Redis? (Low-latency queue management).
-- [ ] How does failure analysis work? (Uses deterministic RegEx rules with LLM fallbacks).
-- [ ] How are artifacts secured? (Paths are validated to prevent directory traversal).
-- [ ] What happens if a worker crashes? (The job remains in `RUNNING` status until cleaned up).
+Ensure the following operational mechanics of the platform are validated:
+- [ ] **Job Queue Handling**: Check if simulation workloads are correctly enqueued, prioritized, and distributed to compute worker slots.
+- [ ] **Verilator Compilation**: Verify SystemVerilog design and C++ testbench transpilation runs successfully inside subprocess pipelines.
+- [ ] **Redis Broker Operations**: Validate low-latency queue distribution and exponential backoff retry sets.
+- [ ] **Failure Analyzer Diagnostics**: Confirm deterministic rule triggers and LLM diagnostics integrations function with correct fallbacks.
+- [ ] **Path Traversal Security**: Ensure absolute path boundary validation checks prevent host file system leakage.
+- [ ] **Worker Status Monitoring**: Verify heartbeats and system telemetry report worker status correctly.
